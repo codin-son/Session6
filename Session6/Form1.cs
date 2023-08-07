@@ -18,10 +18,13 @@ namespace Session6
         {
             InitializeComponent();
             tabControl1.DrawItem += new DrawItemEventHandler(tabControl1_DrawItem);
+
+            
         }
 
         private void tabControl1_DrawItem(Object sender, System.Windows.Forms.DrawItemEventArgs e)
         {
+            // code untuk kasi title tab tabpanel horizontal
             Graphics g = e.Graphics;
             Brush _textBrush;
 
@@ -80,9 +83,45 @@ namespace Session6
             topowneravgval.Text = DBCon.getTopOwnerScore();
             leascleanownerval.Text = DBCon.getLeastCleanOwner();
 
+            DataTable monthVacanRatioTable = DBCon.GetMonthVacanRatio();
+
+            chart1.Series.Clear();
+
+            //tambah bar chart
+            chart1.Series.Add("Vacant");
+            chart1.Series.Add("Reserved");
+            
+            //set char style ke stacked column
+            chart1.Series["Reserved"].ChartType = System.Windows.Forms.DataVisualization.Charting.SeriesChartType.StackedColumn;
+            chart1.Series["Vacant"].ChartType = System.Windows.Forms.DataVisualization.Charting.SeriesChartType.StackedColumn;
+
+            //set data source
+            chart1.Series["Vacant"].XValueMember = "Month";
+            chart1.Series["Vacant"].YValueMembers = "Vacant";
+            chart1.Series["Vacant"].Points.DataBind(monthVacanRatioTable.AsEnumerable(), "Month", "VacantProperties", "");
+
+            chart1.Series["Reserved"].XValueMember = "Month";
+            chart1.Series["Reserved"].YValueMembers = "Reserved";
+            chart1.Series["Reserved"].Points.DataBind(monthVacanRatioTable.AsEnumerable(), "Month", "ReservedProperties", "");
+
+            // Set the chart title and axis labels as needed
+            chart1.Titles.Add("Vacancy Ratio for the Last 3 Months");
+            chart1.ChartAreas[0].AxisX.Title = "Month";
+            chart1.ChartAreas[0].AxisY.Title = "Number of Properties";
+
+            avgnetownerval.Text = DBCon.getTotalNetRev();
+            highnetrevanownerval.Text = DBCon.getHighestnetOwner();
+            totalrevcancelval.Text = DBCon.getTotalNetCancel();
+            totalDiscVal.Text = DBCon.totalDisc();
+
         }
 
         private void label20_Click(object sender, EventArgs e)
+        {
+
+        }
+
+        private void tableLayoutPanel4_Paint(object sender, PaintEventArgs e)
         {
 
         }

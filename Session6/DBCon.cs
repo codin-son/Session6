@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -404,10 +405,35 @@ namespace Session6
             return leastCleanOwner;
         }
 
-        public static ArrayList getmonthVacanRatio()
+        public static DataTable GetMonthVacanRatio()
         {
-            ArrayList monthVacanRatio = new ArrayList();
-            string sql = "SELECT DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 3 MONTH), '%m') AS Month, COUNT(DISTINCT CASE WHEN bd.isRefund = 0 THEN i.ID END) AS ReservedProperties, COUNT(DISTINCT CASE WHEN bd.isRefund = 1 THEN i.ID END) AS VacantProperties FROM Items i LEFT JOIN BookingDetails bd ON i.ID = bd.ItemPriceID LEFT JOIN Bookings b ON bd.BookingID = b.ID WHERE b.BookingDate >= DATE_SUB(NOW(), INTERVAL 3 MONTH) GROUP BY Month";
+            DataTable dataTable = new DataTable();
+            string sql = "SELECT\r\n    DATE_FORMAT(b.BookingDate, '%m') AS Month,\r\n    COUNT(DISTINCT CASE WHEN bd.isRefund = 0 THEN i.ID END) AS ReservedProperties,\r\n    COUNT(DISTINCT CASE WHEN bd.isRefund = 1 THEN i.ID END) AS VacantProperties\r\nFROM\r\n    Items i\r\nLEFT JOIN BookingDetails bd ON i.ID = bd.ItemPriceID\r\nLEFT JOIN Bookings b ON bd.BookingID = b.ID\r\nWHERE\r\n    b.BookingDate >= DATE_SUB(NOW(), INTERVAL 3 MONTH)\r\n    AND b.BookingDate <= NOW() -- Include only dates within the last 3 months\r\nGROUP BY\r\n    Month;\r\n";
+
+            MySqlConnection con = GetConnection();
+            MySqlCommand cmd = new MySqlCommand(sql, con);
+
+            try
+            {
+                MySqlDataAdapter dataAdapter = new MySqlDataAdapter(cmd);
+                dataAdapter.Fill(dataTable);
+            }
+            catch (MySqlException ex)
+            {
+                MessageBox.Show("Error: " + ex);
+            }
+            finally
+            {
+                con.Close();
+            }
+            return dataTable;
+        }
+
+        public static string getTotalNetRev()
+        {
+
+            string totalNetRev = "";
+            string sql = "SELECT AVG(net_revenue) AS average_net_revenue\r\nFROM (\r\n    SELECT\r\n        SUM(b.AmountPaid - COALESCE(cr.AmountRefunded, 0) - COALESCE(cf.PenaltyAmount, 0)) AS net_revenue\r\n    FROM Bookings b\r\n    INNER JOIN BookingDetails bd ON b.ID = bd.BookingID\r\n    INNER JOIN ItemPrices ip ON bd.ItemPriceID = ip.ID\r\n    LEFT JOIN (\r\n        SELECT\r\n            BookingID,\r\n            SUM(CASE WHEN isRefund = 1 THEN ip.Price ELSE 0 END) AS AmountRefunded\r\n        FROM BookingDetails bd\r\n        INNER JOIN ItemPrices ip ON bd.ItemPriceID = ip.ID\r\n        WHERE RefundDate IS NOT NULL\r\n        GROUP BY BookingID\r\n    ) cr ON b.ID = cr.BookingID\r\n    LEFT JOIN (\r\n        SELECT\r\n            BookingID,\r\n            SUM(cf.PenaltyPercentage * ip.Price / 100) AS PenaltyAmount\r\n        FROM BookingDetails bd\r\n        INNER JOIN ItemPrices ip ON bd.ItemPriceID = ip.ID\r\n        INNER JOIN CancellationRefundFees cf ON ip.CancellationPolicyID = cf.CancellationPolicyID\r\n        WHERE DATEDIFF(bd.RefundDate, ip.Date) >= cf.DaysLeft\r\n        GROUP BY BookingID\r\n    ) cf ON b.ID = cf.BookingID\r\n    INNER JOIN Users u ON b.UserID = u.ID\r\n    WHERE u.UserTypeID = 2 -- UserTypeID 2 corresponds to the \"owner\" user type\r\n    GROUP BY u.ID\r\n) owner_revenues;\r\n";
             MySqlConnection con = GetConnection();
             MySqlCommand cmd = new MySqlCommand(sql, con);
 
@@ -416,9 +442,7 @@ namespace Session6
                 MySqlDataReader reader = cmd.ExecuteReader();
                 while (reader.Read())
                 {
-                    monthVacanRatio.Add(reader.GetString("Month"));
-                    monthVacanRatio.Add(reader.GetString("ReservedProperties"));
-                    monthVacanRatio.Add(reader.GetString("VacantProperties"));
+                    totalNetRev = reader.GetString("average_net_revenue");
                 }
             }
             catch (MySqlException ex)
@@ -429,10 +453,103 @@ namespace Session6
             {
                 con.Close();
             }
-            return monthVacanRatio;
+            return totalNetRev;
         }
 
-        
+        public static string getHighestnetOwner()
+        {
+            string highestnetOwner = "";
+            string sql = "SELECT u.FullName, SUM(b.AmountPaid - COALESCE(cr.AmountRefunded, 0) - COALESCE(cf.PenaltyAmount, 0)) AS net_revenue\r\nFROM Bookings b\r\nINNER JOIN BookingDetails bd ON b.ID = bd.BookingID\r\nINNER JOIN ItemPrices ip ON bd.ItemPriceID = ip.ID\r\nLEFT JOIN (\r\n    SELECT BookingID, SUM(CASE WHEN isRefund = 1 THEN ip.Price ELSE 0 END) AS AmountRefunded\r\n    FROM BookingDetails bd\r\n    INNER JOIN ItemPrices ip ON bd.ItemPriceID = ip.ID\r\n    WHERE RefundDate IS NOT NULL\r\n    GROUP BY BookingID\r\n) cr ON b.ID = cr.BookingID\r\nLEFT JOIN (\r\n    SELECT BookingID, SUM(cf.PenaltyPercentage * ip.Price / 100) AS PenaltyAmount\r\n    FROM BookingDetails bd\r\n    INNER JOIN ItemPrices ip ON bd.ItemPriceID = ip.ID\r\n    INNER JOIN CancellationRefundFees cf ON ip.CancellationPolicyID = cf.CancellationPolicyID\r\n    WHERE DATEDIFF(bd.RefundDate, ip.Date) >= cf.DaysLeft\r\n    GROUP BY BookingID\r\n) cf ON b.ID = cf.BookingID\r\nINNER JOIN Users u ON b.UserID = u.ID\r\nWHERE u.UserTypeID = 2 -- UserTypeID 2 corresponds to the \"owner\" user type\r\nGROUP BY u.ID, u.FullName\r\nORDER BY net_revenue DESC\r\nLIMIT 1;\r\n";
+            MySqlConnection con = GetConnection();
+            MySqlCommand cmd = new MySqlCommand(sql, con);
+
+            try
+            {
+                MySqlDataReader reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    highestnetOwner = reader.GetString("FullName");
+                }
+            }
+            catch (MySqlException ex)
+            {
+                MessageBox.Show("Error: " + ex);
+            }
+            finally
+            {
+                con.Close();
+            }
+            return highestnetOwner;
+        }
+
+        public static string getTotalNetCancel()
+        {
+            string totalNetCancel = "";
+            string sql = "SELECT b.AmountPaid, bd.RefundCancellationPoliciyID,ip.CancellationPolicyID ,cp.ID,crf.PenaltyPercentage FROM bookings b JOIN bookingdetails bd ON b.ID = bd.BookingID JOIN itemprices ip ON bd.ItemPriceID = ip.ID JOIN cancellationpolicies cp ON cp.ID = ip.CancellationPolicyID JOIN cancellationrefundfees crf ON crf.ID = bd.RefundCancellationPoliciyID WHERE bd.isRefund = 1";
+            MySqlConnection con = GetConnection();
+            MySqlCommand cmd = new MySqlCommand(sql, con);
+
+            try
+            {
+                MySqlDataReader reader = cmd.ExecuteReader();
+                int amountPaid = 0;
+                int penaltyPercentage = 0;
+                int currentTotalNetCancel = 0;
+                while (reader.Read())
+                {
+                    amountPaid = reader.GetInt32("AmountPaid");
+                    penaltyPercentage = reader.GetInt32("PenaltyPercentage");
+                    currentTotalNetCancel += amountPaid * penaltyPercentage / 100;
+                    totalNetCancel = currentTotalNetCancel.ToString();
+                }
+            }
+            catch (MySqlException ex)
+            {
+                MessageBox.Show("Error: " + ex);
+            }
+            finally
+            {
+                con.Close();
+            }
+            return totalNetCancel;
+
+        }
+
+        public static string totalDisc()
+        {
+            string totalDisc = "";
+            string sql = "SELECT ip.Price,c.DiscountPercent FROM bookings b JOIN bookingdetails bd ON b.ID = bd.BookingID JOIN itemprices ip ON bd.ItemPriceID = ip.ID JOIN coupons c ON b.CouponID = c.ID WHERE b.CouponID IS NOT NULL";
+            MySqlConnection con = GetConnection();
+            MySqlCommand cmd = new MySqlCommand(sql, con);
+
+            try
+            {
+                MySqlDataReader reader = cmd.ExecuteReader();
+                int price = 0;
+                int discountPercent = 0;
+                int currentTotalDisc = 0;
+                while (reader.Read())
+                {
+                    price = reader.GetInt32("Price");
+                    discountPercent = reader.GetInt32("DiscountPercent");
+                    currentTotalDisc += price * discountPercent / 100;
+                    totalDisc = currentTotalDisc.ToString();
+                }
+            }
+            catch (MySqlException ex)
+            {
+                MessageBox.Show("Error: " + ex);
+            }
+            finally
+            {
+                con.Close();
+            }
+            return totalDisc;
+
+        }
+
+
+
 
     }
 }
